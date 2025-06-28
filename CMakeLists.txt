@@ -25,4 +25,12 @@ if(BUILD_TESTING)
   ament_lint_auto_find_test_dependencies()
 endif()
 
+add_executable(pid_maze_solver src/pid_maze_solver.cpp)
+ament_target_dependencies(pid_maze_solver rclcpp tf2 geometry_msgs nav_msgs sensor_msgs)
+
+install(TARGETS
+  pid_maze_solver
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 ament_package()
