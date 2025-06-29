@@ -22,6 +22,14 @@ struct WayPoint {
       : dx(a), dy(b), dphi(c) {}
 };
 
+// Going through the maze consists of a sequence of turn / move etc..
+// The adequate PID Controller is used for each state
+enum RobotState {
+  MOVE, // Move along X, Y axes to reach the waypoint
+  TURN, // Turn towards the next waypoint
+  STOP
+};
+
 class PIDMazeSolver : public rclcpp::Node {
 public:
   PIDMazeSolver() : Node("pid_maze_solver") {
@@ -136,8 +144,8 @@ private:
       RCLCPP_INFO(this->get_logger(), "Reached waypoint number : %lu",
                   traj_index + 1);
 
-      traj_index++; // Update the next motion index
-      // reset the yaw error computed to reach the waypoint
+      // traj_index++; // Update the next motion index
+      //  reset the yaw error computed to reach the waypoint
       prev_error_yaw = 0.0;
       set_target_yaw = false; // Reset target yaw for next waypoint
 
@@ -193,7 +201,7 @@ private:
 
       stop_robot();
 
-      traj_index++; // Update the next motion index
+      // traj_index++; // Update the next motion index
 
       // reset distances travelled to compute next trajectory errors
       distance_travelled_x = 0.0;
