@@ -53,6 +53,8 @@ public:
 
     waypoints_traj_init();
 
+    robot_state = STOP;
+
     RCLCPP_INFO(this->get_logger(), "Initialized PID Maze Solver node");
   }
 
@@ -68,10 +70,10 @@ private:
     distance_travelled_x += dx; // positive if x > 0
     distance_travelled_y += dy; // negative if y < 0
 
-    RCLCPP_INFO(this->get_logger(), "distance_travelled_x = %f ",
-                distance_travelled_x);
-    RCLCPP_INFO(this->get_logger(), "distance_travelled_y = %f ",
-                distance_travelled_y);
+    // RCLCPP_INFO(this->get_logger(), "distance_travelled_x = %f ",
+    //             distance_travelled_x);
+    // RCLCPP_INFO(this->get_logger(), "distance_travelled_y = %f ",
+    //             distance_travelled_y);
 
     old_x = current_x;
     old_y = current_y;
@@ -84,32 +86,33 @@ private:
     tf2::Matrix3x3 m(q);
     double roll, pitch;
     m.getRPY(roll, pitch, current_yaw);
-    RCLCPP_INFO(this->get_logger(),
-                "Received Odometry - current_yaw: %f radians", current_yaw);
+    // RCLCPP_INFO(this->get_logger(),
+    //             "Received Odometry - current_yaw: %f radians", current_yaw);
   }
 
   // Add all the waypoints the robot is going throughout the maze
   void waypoints_traj_init() {
 
     waypoints_traj.push_back(WayPoint(+0.244, +0.000, +0.000)); // 1
-    waypoints_traj.push_back(WayPoint(+0.266, -0.134, -0.785)); // -PI/4
-    waypoints_traj.push_back(WayPoint(+0.000, -1.256, -0.785)); // 3
-    waypoints_traj.push_back(WayPoint(+0.303, +0.000, +1.571)); // 4
-    waypoints_traj.push_back(WayPoint(+0.000, +0.467, +1.571)); // 5
+    // waypoints_traj.push_back(WayPoint(+0.266, -0.134, -0.785)); // -PI/4
+    waypoints_traj.push_back(WayPoint(+0.200, -0.200, -0.785)); // -PI/4
+    // waypoints_traj.push_back(WayPoint(+0.000, -1.256, -0.785)); // 3
+    // waypoints_traj.push_back(WayPoint(+0.303, +0.000, +1.571)); // 4
+    // waypoints_traj.push_back(WayPoint(+0.000, +0.467, +1.571)); // 5
 
-    waypoints_traj.push_back(WayPoint(+0.421, +0.000, +0.000)); // 6
-    waypoints_traj.push_back(WayPoint(+0.000, +0.615, +0.000)); // 7
-    waypoints_traj.push_back(WayPoint(+0.497, +0.000, +0.000)); // 8
-    waypoints_traj.push_back(WayPoint(+0.000, +0.802, +0.000)); // 9
+    // waypoints_traj.push_back(WayPoint(+0.421, +0.000, +0.000)); // 6
+    // waypoints_traj.push_back(WayPoint(+0.000, +0.615, +0.000)); // 7
+    // waypoints_traj.push_back(WayPoint(+0.497, +0.000, +0.000)); // 8
+    // waypoints_traj.push_back(WayPoint(+0.000, +0.802, +0.000)); // 9
 
-    waypoints_traj.push_back(WayPoint(-0.450, +0.000, +1.571)); // 10
+    // waypoints_traj.push_back(WayPoint(-0.450, +0.000, +1.571)); // 10
 
-    waypoints_traj.push_back(WayPoint(+0.000, -0.301, +0.000)); // 11
-    waypoints_traj.push_back(WayPoint(-0.480, +0.000, +0.000)); // 12
+    // waypoints_traj.push_back(WayPoint(+0.000, -0.301, +0.000)); // 11
+    // waypoints_traj.push_back(WayPoint(-0.480, +0.000, +0.000)); // 12
 
-    waypoints_traj.push_back(WayPoint(-0.433, +0.229, -0.785)); // 13
-    waypoints_traj.push_back(WayPoint(-0.374, +0.000, +0.785)); // 14
-    waypoints_traj.push_back(WayPoint(+0.000, +0.000, +3.141)); // Final step
+    // waypoints_traj.push_back(WayPoint(-0.433, +0.229, -0.785)); // 13
+    // waypoints_traj.push_back(WayPoint(-0.374, +0.000, +0.785)); // 14
+    // waypoints_traj.push_back(WayPoint(+0.000, +0.000, +3.141)); // Final step
   }
 
   // Move the robot according to the desired trajectory
@@ -124,6 +127,33 @@ private:
     }
 
     target = waypoints_traj[traj_index];
+
+    if (target.dphi != 0.000) {
+
+      if (robot_state != MOVE) {
+        robot_state = TURN;
+      }
+
+    } else {
+      if (target.dx != 0.000 || target.dy != 0.000) {
+        robot_state = MOVE; // After turn sequence ends, start move sequence
+      }
+    }
+
+    if (robot_state == TURN) {
+      RCLCPP_INFO(this->get_logger(), "ROBOT STATE == TURN ");
+      turn_controller();
+    }
+
+    if (robot_state == MOVE) {
+      RCLCPP_INFO(this->get_logger(), "ROBOT STATE == MOVE ");
+      distance_controller();
+    }
+
+    if (robot_state == STOP) {
+      RCLCPP_INFO(this->get_logger(), "ROBOT STATE == STOP ");
+      stop_robot();
+    }
   }
 
   void turn_controller() {
@@ -141,16 +171,24 @@ private:
 
     // If the robot reached the target waypoint
     if (std::abs(error_yaw) < 0.1) {
-      RCLCPP_INFO(this->get_logger(), "Reached waypoint number : %lu",
+      RCLCPP_INFO(this->get_logger(), "Turned towards waypoint number : %lu",
                   traj_index + 1);
 
-      // traj_index++; // Update the next motion index
       //  reset the yaw error computed to reach the waypoint
       prev_error_yaw = 0.0;
       set_target_yaw = false; // Reset target yaw for next waypoint
 
+      if (target.dx != 0.000 || target.dy != 0.000) {
+        robot_state = MOVE; // After turn sequence ends, start move sequence
+      }
+
+      else {
+        traj_index++; // Go to the next waypoint
+      }
+
       stop_robot(); // Stop the robot for 20 * 0.1 = 2 seconds
       rclcpp::sleep_for(std::chrono::seconds(2));
+      return;
     }
 
     // Calculate delta time
@@ -192,21 +230,26 @@ private:
     double error_y = target.dy - distance_travelled_y;
     double distance = std::hypot(error_x, error_y);
 
+    RCLCPP_INFO(this->get_logger(), "error_x is : %f", error_x);
+    RCLCPP_INFO(this->get_logger(), "error_y is : %f", error_y);
+    RCLCPP_INFO(this->get_logger(), "Distance is : %f", distance);
+
     // If the robot reached the target waypoint
     if (distance < 0.02) {
       RCLCPP_INFO(this->get_logger(), "Reached waypoint number : %lu",
                   traj_index + 1);
 
-      // Stop the robot for 20 * 0.1 = 2 seconds
-
-      stop_robot();
-
-      // traj_index++; // Update the next motion index
+      traj_index++;       // Go to the next waypoint
+      robot_state = TURN; // Reset robot state
 
       // reset distances travelled to compute next trajectory errors
       distance_travelled_x = 0.0;
       distance_travelled_y = 0.0;
+
+      // Stop the robot for 20 * 0.1 = 2 seconds
+      stop_robot();
       rclcpp::sleep_for(std::chrono::seconds(2));
+      return;
     }
 
     // Calculate delta time
@@ -234,8 +277,8 @@ private:
     vx = std::clamp(vx, -max_linear_speed, +max_linear_speed);
     vy = std::clamp(vy, -max_linear_speed, +max_linear_speed);
 
-    // RCLCPP_INFO(this->get_logger(), "vx = %f ", vx);
-    // RCLCPP_INFO(this->get_logger(), "vy = %f ", vy);
+    RCLCPP_INFO(this->get_logger(), "vx = %f ", vx);
+    RCLCPP_INFO(this->get_logger(), "vy = %f ", vy);
 
     twist_cmd.linear.x = vx;
     twist_cmd.linear.y = vy;
@@ -322,6 +365,9 @@ private:
   double prev_error_y = 0.0;
   double max_linear_speed =
       0.8; // source: https://husarion.com/manuals/rosbot-xl/
+
+  // Robot State Parameters
+  RobotState robot_state;
 };
 
 int main(int argc, char *argv[]) {
