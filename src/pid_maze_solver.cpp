@@ -7,6 +7,9 @@
 #include "rclcpp/logging.hpp"
 #include "rclcpp/rclcpp.hpp"
 
+#include "tf2/LinearMath/Matrix3x3.h"
+#include "tf2/LinearMath/Quaternion.h"
+
 using std::placeholders::_1;
 using namespace std::chrono_literals;
 
@@ -37,6 +40,33 @@ public:
 private:
   void odom_callback(const nav_msgs::msg::Odometry::SharedPtr msg) {
     // Compute distance travelled in X and Y axis
+    current_x = msg->pose.pose.position.x;
+    current_y = msg->pose.pose.position.y;
+
+    dx = current_x - old_x;
+    dy = current_y - old_y;
+
+    distance_travelled_x += dx; // positive if x > 0
+    distance_travelled_y += dy; // negative if y < 0
+
+    RCLCPP_INFO(this->get_logger(), "distance_travelled_x = %f ",
+                distance_travelled_x);
+    RCLCPP_INFO(this->get_logger(), "distance_travelled_y = %f ",
+                distance_travelled_y);
+
+    old_x = current_x;
+    old_y = current_y;
+
+    // Then, compute robot current yaw
+    tf2::Quaternion q(
+        msg->pose.pose.orientation.x, msg->pose.pose.orientation.y,
+        msg->pose.pose.orientation.z, msg->pose.pose.orientation.w);
+
+    tf2::Matrix3x3 m(q);
+    double roll, pitch;
+    m.getRPY(roll, pitch, current_yaw);
+    RCLCPP_INFO(this->get_logger(),
+                "Received Odometry - current_yaw: %f radians", current_yaw);
   }
 
   // Move the robot according to the desired trajectory
@@ -61,6 +91,19 @@ private:
 
   // Parameters to move the robot
   geometry_msgs::msg::Twist twist_cmd;
+
+  // Parameters used to compute the yaw
+  double current_yaw = 0.0;
+
+  // Parameters used to compute the distance travelled
+  double old_x = 0.0;
+  double old_y = 0.0;
+  double current_x = 0.0;
+  double current_y = 0.0;
+  double dx = 0.0; // distance between two odom messages
+  double dy = 0.0;
+  double distance_travelled_x = 0.0;
+  double distance_travelled_y = 0.0;
 };
 
 int main(int argc, char *argv[]) {
