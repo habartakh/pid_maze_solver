@@ -13,6 +13,15 @@
 using std::placeholders::_1;
 using namespace std::chrono_literals;
 
+struct WayPoint {
+  double dx;   // change in the x-coordinate of the robot's position
+  double dy;   // change in the y-coordinate of the robot's position
+  double dphi; // change in the orientation angle of the robot
+
+  WayPoint(double a = 0.0, double b = 0.0, double c = 0.0)
+      : dx(a), dy(b), dphi(c) {}
+};
+
 class PIDMazeSolver : public rclcpp::Node {
 public:
   PIDMazeSolver() : Node("pid_maze_solver") {
@@ -33,6 +42,8 @@ public:
     twist_timer = this->create_wall_timer(
         100ms, std::bind(&PIDMazeSolver::control_loop, this),
         timer_callback_group_);
+
+    waypoints_traj_init();
 
     RCLCPP_INFO(this->get_logger(), "Initialized PID Maze Solver node");
   }
@@ -67,6 +78,30 @@ private:
     m.getRPY(roll, pitch, current_yaw);
     RCLCPP_INFO(this->get_logger(),
                 "Received Odometry - current_yaw: %f radians", current_yaw);
+  }
+
+  // Add all the waypoints the robot is going throughout the maze
+  void waypoints_traj_init() {
+
+    waypoints_traj.push_back(WayPoint(+0.244, +0.000, +0.000)); // 1
+    waypoints_traj.push_back(WayPoint(+0.266, -0.134, -0.785)); // -PI/4
+    waypoints_traj.push_back(WayPoint(+0.000, -1.256, -0.785)); // 3
+    waypoints_traj.push_back(WayPoint(+0.303, +0.000, +1.571)); // 4
+    waypoints_traj.push_back(WayPoint(+0.000, +0.467, +1.571)); // 5
+
+    waypoints_traj.push_back(WayPoint(+0.421, +0.000, +0.000)); // 6
+    waypoints_traj.push_back(WayPoint(+0.000, +0.615, +0.000)); // 7
+    waypoints_traj.push_back(WayPoint(+0.497, +0.000, +0.000)); // 8
+    waypoints_traj.push_back(WayPoint(+0.000, +0.802, +0.000)); // 9
+
+    waypoints_traj.push_back(WayPoint(-0.450, +0.000, +1.571)); // 10
+
+    waypoints_traj.push_back(WayPoint(+0.000, -0.301, +0.000)); // 11
+    waypoints_traj.push_back(WayPoint(-0.480, +0.000, +0.000)); // 12
+
+    waypoints_traj.push_back(WayPoint(-0.433, +0.229, -0.785)); // 13
+    waypoints_traj.push_back(WayPoint(-0.374, +0.000, +0.785)); // 14
+    waypoints_traj.push_back(WayPoint(+0.000, +0.000, +3.141)); // Final step
   }
 
   // Move the robot according to the desired trajectory
@@ -104,6 +139,10 @@ private:
   double dy = 0.0;
   double distance_travelled_x = 0.0;
   double distance_travelled_y = 0.0;
+
+  // Waypoints the robot is passing by throughout the maze
+  std::vector<WayPoint> waypoints_traj;
+  long unsigned int traj_index = 0;
 };
 
 int main(int argc, char *argv[]) {
