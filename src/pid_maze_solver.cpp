@@ -60,25 +60,8 @@ public:
 
 private:
   void odom_callback(const nav_msgs::msg::Odometry::SharedPtr msg) {
-    // Compute distance travelled in X and Y axis
-    current_x = msg->pose.pose.position.x;
-    current_y = msg->pose.pose.position.y;
 
-    dx = current_x - old_x;
-    dy = current_y - old_y;
-
-    distance_travelled_x += dx; // positive if x > 0
-    distance_travelled_y += dy; // negative if y < 0
-
-    // RCLCPP_INFO(this->get_logger(), "distance_travelled_x = %f ",
-    //             distance_travelled_x);
-    // RCLCPP_INFO(this->get_logger(), "distance_travelled_y = %f ",
-    //             distance_travelled_y);
-
-    old_x = current_x;
-    old_y = current_y;
-
-    // Then, compute robot current yaw
+    // Compute robot current yaw
     tf2::Quaternion q(
         msg->pose.pose.orientation.x, msg->pose.pose.orientation.y,
         msg->pose.pose.orientation.z, msg->pose.pose.orientation.w);
@@ -88,17 +71,40 @@ private:
     m.getRPY(roll, pitch, current_yaw);
     // RCLCPP_INFO(this->get_logger(),
     //             "Received Odometry - current_yaw: %f radians", current_yaw);
+    // Compute distance travelled in X and Y axis
+
+    current_x = msg->pose.pose.position.x;
+    current_y = msg->pose.pose.position.y;
+
+    double dx_global = current_x - old_x;
+    double dy_global = current_y - old_y;
+
+    //! IMPORTANT Step: Transform the global dx and dy
+    // into the robot local frame used for the waypoints values
+    dx = dx_global * cos(current_yaw) + dy_global * sin(current_yaw);
+    dy = -dx_global * sin(current_yaw) + dy_global * cos(current_yaw);
+
+    distance_travelled_x += dx; // positive if x > 0
+    distance_travelled_y += dy; // negative if y < 0
+
+    RCLCPP_INFO(this->get_logger(), "distance_travelled_x = %f ",
+                distance_travelled_x);
+    // RCLCPP_INFO(this->get_logger(), "distance_travelled_y = %f ",
+    //             distance_travelled_y);
+
+    old_x = current_x;
+    old_y = current_y;
   }
 
   // Add all the waypoints the robot is going throughout the maze
   void waypoints_traj_init() {
 
-    waypoints_traj.push_back(WayPoint(+0.244, +0.000, +0.000)); // 1
+    waypoints_traj.push_back(WayPoint(+0.354, +0.000, +0.000)); // 1
     // waypoints_traj.push_back(WayPoint(+0.266, -0.134, -0.785)); // -PI/4
-    waypoints_traj.push_back(WayPoint(+0.200, -0.200, -0.785)); // -PI/4
-    // waypoints_traj.push_back(WayPoint(+0.000, -1.256, -0.785)); // 3
-    // waypoints_traj.push_back(WayPoint(+0.303, +0.000, +1.571)); // 4
-    // waypoints_traj.push_back(WayPoint(+0.000, +0.467, +1.571)); // 5
+    waypoints_traj.push_back(WayPoint(+0.150, +0.000, -0.785)); // 2
+    waypoints_traj.push_back(WayPoint(+1.150, +0.000, -0.785)); // 3
+    waypoints_traj.push_back(WayPoint(+0.413, +0.000, +1.571)); // 4
+    waypoints_traj.push_back(WayPoint(+0.467, +0.000, +1.571)); // 5
 
     // waypoints_traj.push_back(WayPoint(+0.421, +0.000, +0.000)); // 6
     // waypoints_traj.push_back(WayPoint(+0.000, +0.615, +0.000)); // 7
@@ -141,17 +147,17 @@ private:
     }
 
     if (robot_state == TURN) {
-      RCLCPP_INFO(this->get_logger(), "ROBOT STATE == TURN ");
+      // RCLCPP_INFO(this->get_logger(), "ROBOT STATE == TURN ");
       turn_controller();
     }
 
     if (robot_state == MOVE) {
-      RCLCPP_INFO(this->get_logger(), "ROBOT STATE == MOVE ");
+      // RCLCPP_INFO(this->get_logger(), "ROBOT STATE == MOVE ");
       distance_controller();
     }
 
     if (robot_state == STOP) {
-      RCLCPP_INFO(this->get_logger(), "ROBOT STATE == STOP ");
+      // RCLCPP_INFO(this->get_logger(), "ROBOT STATE == STOP ");
       stop_robot();
     }
   }
@@ -170,7 +176,7 @@ private:
     // RCLCPP_INFO(this->get_logger(), "error_yaw : %f", error_yaw);
 
     // If the robot reached the target waypoint
-    if (std::abs(error_yaw) < 0.1) {
+    if (std::abs(error_yaw) < 0.02) {
       RCLCPP_INFO(this->get_logger(), "Turned towards waypoint number : %lu",
                   traj_index + 1);
 
@@ -228,23 +234,34 @@ private:
     // Compute the distance left to the target
     double error_x = target.dx - distance_travelled_x;
     double error_y = target.dy - distance_travelled_y;
+
+    // Important: when dx or dy = 0 during lateral movements,
+    // the corresponding error still accumulates noise, resulting in
+    // non null velocities that need to be corrected
+    if (target.dx != 0.00 && target.dy == 0.000) {
+      error_y = 0.0;
+    }
+    if (target.dy != 0.00 && target.dx == 0.000) {
+      error_x = 0.0;
+    }
+
     double distance = std::hypot(error_x, error_y);
 
     RCLCPP_INFO(this->get_logger(), "error_x is : %f", error_x);
-    RCLCPP_INFO(this->get_logger(), "error_y is : %f", error_y);
-    RCLCPP_INFO(this->get_logger(), "Distance is : %f", distance);
+    // RCLCPP_INFO(this->get_logger(), "error_y is : %f", error_y);
+    // RCLCPP_INFO(this->get_logger(), "Distance is : %f", distance);
 
     // If the robot reached the target waypoint
-    if (distance < 0.02) {
+    if (distance < 0.01) {
       RCLCPP_INFO(this->get_logger(), "Reached waypoint number : %lu",
                   traj_index + 1);
-
-      traj_index++;       // Go to the next waypoint
-      robot_state = TURN; // Reset robot state
 
       // reset distances travelled to compute next trajectory errors
       distance_travelled_x = 0.0;
       distance_travelled_y = 0.0;
+
+      traj_index++;       // Go to the next waypoint
+      robot_state = TURN; // Reset robot state
 
       // Stop the robot for 20 * 0.1 = 2 seconds
       stop_robot();
@@ -355,9 +372,9 @@ private:
       3.14; // source: https://husarion.com/manuals/rosbot-xl/
 
   // PID Distance Controller Parameters
-  double kp_distance = 3.5;  // Proportional Gain
+  double kp_distance = 1.5;  // Proportional Gain
   double ki_distance = 0.05; // Integral Gain
-  double kd_distance = 2.0;  // Derivative Gain
+  double kd_distance = 1.0;  // Derivative Gain
   double integral_x = 0.0;   // Integral terms of the PID controller
   double integral_y = 0.0;
   rclcpp::Time prev_time_distance; // instant t-1
