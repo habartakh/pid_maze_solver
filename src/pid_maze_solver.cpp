@@ -71,40 +71,20 @@ private:
     m.getRPY(roll, pitch, current_yaw);
     // RCLCPP_INFO(this->get_logger(),
     //             "Received Odometry - current_yaw: %f radians", current_yaw);
-    // Compute distance travelled in X and Y axis
 
+    // Compute distance travelled in X and Y axis
     current_x = msg->pose.pose.position.x;
     current_y = msg->pose.pose.position.y;
-
-    double dx_global = current_x - old_x;
-    double dy_global = current_y - old_y;
-
-    //! IMPORTANT Step: Transform the global dx and dy
-    // into the robot local frame used for the waypoints values
-    dx = dx_global * cos(current_yaw) + dy_global * sin(current_yaw);
-    dy = -dx_global * sin(current_yaw) + dy_global * cos(current_yaw);
-
-    distance_travelled_x += dx; // positive if x > 0
-    distance_travelled_y += dy; // negative if y < 0
-
-    RCLCPP_INFO(this->get_logger(), "distance_travelled_x = %f ",
-                distance_travelled_x);
-    // RCLCPP_INFO(this->get_logger(), "distance_travelled_y = %f ",
-    //             distance_travelled_y);
-
-    old_x = current_x;
-    old_y = current_y;
   }
 
   // Add all the waypoints the robot is going throughout the maze
   void waypoints_traj_init() {
 
-    waypoints_traj.push_back(WayPoint(+0.354, +0.000, +0.000)); // 1
-    // waypoints_traj.push_back(WayPoint(+0.266, -0.134, -0.785)); // -PI/4
+    waypoints_traj.push_back(WayPoint(+0.353, +0.000, +0.000)); // 1
     waypoints_traj.push_back(WayPoint(+0.150, +0.000, -0.785)); // 2
-    waypoints_traj.push_back(WayPoint(+1.150, +0.000, -0.785)); // 3
-    waypoints_traj.push_back(WayPoint(+0.413, +0.000, +1.571)); // 4
-    waypoints_traj.push_back(WayPoint(+0.467, +0.000, +1.571)); // 5
+    waypoints_traj.push_back(WayPoint(+1.590, +0.000, -0.785)); // 3
+    waypoints_traj.push_back(WayPoint(+0.453, +0.000, +1.571)); // 4
+    waypoints_traj.push_back(WayPoint(-0.467, +0.000, +1.571)); // 5
 
     // waypoints_traj.push_back(WayPoint(+0.421, +0.000, +0.000)); // 6
     // waypoints_traj.push_back(WayPoint(+0.000, +0.615, +0.000)); // 7
@@ -170,6 +150,7 @@ private:
       target_yaw = normalize_angle(current_yaw + target.dphi);
       set_target_yaw = true;
     }
+
     // Compute the angle left to the target
     double error_yaw = target_yaw - current_yaw;
 
@@ -231,19 +212,34 @@ private:
 
   void distance_controller() {
 
+    // Compute the yaw at the start of the movement
+    if (!move_initialized) {
+      yaw_start = current_yaw;
+      x_start = current_x;
+      y_start = current_y;
+      move_initialized = true;
+    }
+
+    //! IMPORTANT Step: Transform the global dx and dy
+    // into the robot local frame used for the waypoints values
+    // Use yaw at the start of the movement. Otherwise, every time the robot
+    // rotates slightly, the local frame moves too resulting in dx dy errors
+    double goal_x =
+        x_start + target.dx * cos(yaw_start) - target.dy * sin(yaw_start);
+    double goal_y =
+        y_start + target.dx * sin(yaw_start) + target.dy * cos(yaw_start);
+
     // Compute the distance left to the target
-    double error_x = target.dx - distance_travelled_x;
-    double error_y = target.dy - distance_travelled_y;
+    double error_x = goal_x - current_x;
+    double error_y = goal_y - current_y;
 
     // Important: when dx or dy = 0 during lateral movements,
     // the corresponding error still accumulates noise, resulting in
     // non null velocities that need to be corrected
-    if (target.dx != 0.00 && target.dy == 0.000) {
+    if (std::abs(target.dy) < 1e-3)
       error_y = 0.0;
-    }
-    if (target.dy != 0.00 && target.dx == 0.000) {
+    if (std::abs(target.dx) < 1e-3)
       error_x = 0.0;
-    }
 
     double distance = std::hypot(error_x, error_y);
 
@@ -256,9 +252,11 @@ private:
       RCLCPP_INFO(this->get_logger(), "Reached waypoint number : %lu",
                   traj_index + 1);
 
-      // reset distances travelled to compute next trajectory errors
-      distance_travelled_x = 0.0;
-      distance_travelled_y = 0.0;
+      // reset the integral controller
+      integral_x = 0.0;
+      integral_y = 0.0;
+
+      move_initialized = false; // Reset for next move phase
 
       traj_index++;       // Go to the next waypoint
       robot_state = TURN; // Reset robot state
@@ -294,8 +292,8 @@ private:
     vx = std::clamp(vx, -max_linear_speed, +max_linear_speed);
     vy = std::clamp(vy, -max_linear_speed, +max_linear_speed);
 
-    RCLCPP_INFO(this->get_logger(), "vx = %f ", vx);
-    RCLCPP_INFO(this->get_logger(), "vy = %f ", vy);
+    // RCLCPP_INFO(this->get_logger(), "vx = %f ", vx);
+    // RCLCPP_INFO(this->get_logger(), "vy = %f ", vy);
 
     twist_cmd.linear.x = vx;
     twist_cmd.linear.y = vy;
@@ -343,15 +341,11 @@ private:
   // Parameters used to compute the yaw
   double current_yaw = 0.0;
 
-  // Parameters used to compute the distance travelled
-  double old_x = 0.0;
-  double old_y = 0.0;
+  // Parameters used to compute the distance to the waypoint
   double current_x = 0.0;
   double current_y = 0.0;
-  double dx = 0.0; // distance between two odom messages
-  double dy = 0.0;
-  double distance_travelled_x = 0.0;
-  double distance_travelled_y = 0.0;
+  double x_start = 0.0;
+  double y_start = 0.0;
 
   // Waypoints the robot is passing by throughout the maze
   std::vector<WayPoint> waypoints_traj;
@@ -372,9 +366,9 @@ private:
       3.14; // source: https://husarion.com/manuals/rosbot-xl/
 
   // PID Distance Controller Parameters
-  double kp_distance = 1.5;  // Proportional Gain
+  double kp_distance = 3.5;  // Proportional Gain
   double ki_distance = 0.05; // Integral Gain
-  double kd_distance = 1.0;  // Derivative Gain
+  double kd_distance = 2.5;  // Derivative Gain
   double integral_x = 0.0;   // Integral terms of the PID controller
   double integral_y = 0.0;
   rclcpp::Time prev_time_distance; // instant t-1
@@ -385,6 +379,10 @@ private:
 
   // Robot State Parameters
   RobotState robot_state;
+
+  // Transform global dx and dy in local robot frame
+  double yaw_start = 0.0;
+  bool move_initialized = false;
 };
 
 int main(int argc, char *argv[]) {
