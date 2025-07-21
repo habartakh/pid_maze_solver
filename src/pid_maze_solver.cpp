@@ -70,8 +70,7 @@ private:
     double roll, pitch;
     m.getRPY(roll, pitch, current_yaw);
     // RCLCPP_INFO(this->get_logger(),
-    //             "Received Odometry - current_yaw: %f radians",
-    //             current_yaw);
+    //             "Received Odometry - current_yaw: %f radians", current_yaw);
 
     // Compute distance travelled in X and Y axis
     current_x = msg->pose.pose.position.x;
@@ -86,22 +85,22 @@ private:
     waypoints_traj.push_back(WayPoint(+0.353, +0.000, +0.000, false)); // 1
     waypoints_traj.push_back(WayPoint(+0.136, +0.000, -0.785, false)); // 2
     waypoints_traj.push_back(WayPoint(+0.000, -1.260, -0.785, false)); // 3
-    // waypoints_traj.push_back(WayPoint(+0.473, +0.000, +1.571)); // 4
-    // waypoints_traj.push_back(WayPoint(-0.267, +0.000, +1.571)); // 5
+    waypoints_traj.push_back(WayPoint(+0.543, +0.000, +1.571, false)); // 4
+    waypoints_traj.push_back(WayPoint(+0.000, +0.581, +1.571, false)); // 5
 
-    // waypoints_traj.push_back(WayPoint(+0.421, +0.000, +0.000)); // 6
-    // waypoints_traj.push_back(WayPoint(+0.000, +0.615, +0.000)); // 7
-    // waypoints_traj.push_back(WayPoint(+0.497, +0.000, +0.000)); // 8
-    // waypoints_traj.push_back(WayPoint(+0.000, +0.802, +0.000)); // 9
+    waypoints_traj.push_back(WayPoint(+0.411, +0.000, +0.000, true));  // 6
+    waypoints_traj.push_back(WayPoint(+0.000, +0.517, +0.000, false)); // 7
+    waypoints_traj.push_back(WayPoint(+0.535, +0.000, +0.000, true));  // 8
+    waypoints_traj.push_back(WayPoint(+0.000, +0.878, +0.000, false)); // 9
 
-    // waypoints_traj.push_back(WayPoint(-0.450, +0.000, +1.571)); // 10
+    waypoints_traj.push_back(WayPoint(-0.515, +0.000, +1.571, false)); // 10
 
-    // waypoints_traj.push_back(WayPoint(+0.000, -0.301, +0.000)); // 11
-    // waypoints_traj.push_back(WayPoint(-0.480, +0.000, +0.000)); // 12
+    waypoints_traj.push_back(WayPoint(+0.000, -0.361, +0.000, true));  // 11
+    waypoints_traj.push_back(WayPoint(-0.450, +0.000, +0.000, false)); // 12
 
-    // waypoints_traj.push_back(WayPoint(-0.433, +0.229, -0.785)); // 13
-    // waypoints_traj.push_back(WayPoint(-0.374, +0.000, +0.785)); // 14
-    // waypoints_traj.push_back(WayPoint(+0.000, +0.000, +3.141)); // Final step
+    waypoints_traj.push_back(WayPoint(-0.326, +0.000, -0.785, false)); // 13
+    waypoints_traj.push_back(WayPoint(-0.454, +0.000, +0.785, false)); // 14
+    waypoints_traj.push_back(WayPoint(+0.000, +0.000, +3.141, false)); // 15
   }
 
   // Move the robot according to the desired trajectory
@@ -148,7 +147,6 @@ private:
     if (!set_target_yaw) {
       // Compute the angle left to the target
       target_yaw = normalize_angle(current_yaw + target.dphi);
-      // yaw_start = target_yaw;
       set_target_yaw = true;
       integral_yaw = 0.0;
     }
@@ -302,6 +300,12 @@ private:
                 kp_distance * error_distance, ki_distance * integral_distance,
                 kd_distance * derivative_distance, linear_vel);
 
+    // Set the direction for holonomic movement (Right/Left)
+    double direction = -1.0;
+    if (target.dx < 0 || target.dy < 0) {
+      direction = 1.0;
+    }
+
     // Depending on whether the robot is going to move along its x ar y axis, we
     // set the correct linear velocity
     if (!target.holonomic) {
@@ -309,7 +313,7 @@ private:
       twist_cmd.linear.y = 0.0;
     } else {
       twist_cmd.linear.x = 0.0;
-      twist_cmd.linear.y = linear_vel;
+      twist_cmd.linear.y = direction * linear_vel;
     }
     twist_cmd.angular.z = 0.0;
 
@@ -372,7 +376,7 @@ private:
 
   // PID Turn Controller Parameters
   double angular_speed = 0.0;
-  double kp_yaw = 2.5;        // Proportional Gain
+  double kp_yaw = 1.5;        // Proportional Gain
   double ki_yaw = 0.0;        // Integral Gain
   double kd_yaw = 0.5;        // Derivative Gain
   double integral_yaw = 0.0;  // Integral terms of the PID controller
@@ -386,7 +390,7 @@ private:
   // PID Distance Controller Parameters
   double kp_distance = 1.0;       // Proportional Gain
   double ki_distance = 0.005;     // Integral Gain
-  double kd_distance = 0.0;       // Derivative Gain
+  double kd_distance = 0.00;      // Derivative Gain
   double integral_distance = 0.0; // Integral terms of the PID controller
   double integral_y = 0.0;
   rclcpp::Time prev_time_distance; // instant t-1
@@ -398,8 +402,6 @@ private:
   // Robot State Parameters
   RobotState robot_state;
 
-  // Transform global dx and dy in local robot frame
-  double yaw_start = 0.0;
   bool move_initialized = false;
 };
 
