@@ -12,6 +12,8 @@ find_package(tf2 REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(yaml-cpp REQUIRED)
+
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
@@ -26,11 +28,21 @@ if(BUILD_TESTING)
 endif()
 
 add_executable(pid_maze_solver src/pid_maze_solver.cpp)
-ament_target_dependencies(pid_maze_solver rclcpp tf2 geometry_msgs nav_msgs sensor_msgs)
+ament_target_dependencies(pid_maze_solver rclcpp tf2 geometry_msgs nav_msgs sensor_msgs yaml-cpp)
+# Add the linker flag otherwise yaml library wont work
+target_link_libraries(pid_maze_solver ${YAML_CPP_LIBRARIES})
 
 install(TARGETS
   pid_maze_solver
   DESTINATION lib/${PROJECT_NAME}
+)
+
+# We install the waypoints folder with all the waypoints files
+install(
+  DIRECTORY
+    waypoints
+  DESTINATION
+    share/${PROJECT_NAME}/
 )
 
 ament_package()

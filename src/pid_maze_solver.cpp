@@ -10,6 +10,10 @@
 #include "tf2/LinearMath/Matrix3x3.h"
 #include "tf2/LinearMath/Quaternion.h"
 
+#include "ament_index_cpp/get_package_share_directory.hpp"
+#include "yaml-cpp/yaml.h" // include the yaml library
+#include <filesystem>      // Include the filesystem library
+
 using std::placeholders::_1;
 using namespace std::chrono_literals;
 
@@ -33,7 +37,8 @@ enum RobotState {
 
 class PIDMazeSolver : public rclcpp::Node {
 public:
-  PIDMazeSolver() : Node("pid_maze_solver") {
+  PIDMazeSolver(int scene_number)
+      : Node("pid_maze_solver"), scene_number_(scene_number) {
 
     odom_callback_group_ = this->create_callback_group(
         rclcpp::CallbackGroupType::MutuallyExclusive);
@@ -52,7 +57,8 @@ public:
         100ms, std::bind(&PIDMazeSolver::control_loop, this),
         timer_callback_group_);
 
-    waypoints_traj_init();
+    // waypoints_traj_init();
+    readWaypointsYAML();
 
     robot_state = TURN;
 
@@ -101,6 +107,69 @@ private:
     waypoints_traj.push_back(WayPoint(-0.326, +0.000, -0.785, false)); // 13
     waypoints_traj.push_back(WayPoint(-0.494, +0.000, +0.785, false)); // 14
     waypoints_traj.push_back(WayPoint(+0.000, +0.000, +3.141, false)); // 15
+  }
+
+  void readWaypointsYAML() {
+
+    // Get the package's share directory and append the YAML file path
+    std::string package_share_directory =
+        ament_index_cpp::get_package_share_directory(
+            "pid_maze_solver"); // Replace with your package name
+
+    std::string waypoint_file_name = "";
+
+    switch (scene_number_) {
+    case 1: // Simulation
+      waypoint_file_name = "waypoints_sim.yaml";
+      direction = -1.0;
+      if (target.dx < 0 || target.dy < 0) {
+        direction = 1.0;
+      }
+      break;
+
+    case 2: // CyberWorld
+      waypoint_file_name = "waypoints_real.yaml";
+      max_linear_speed = 0.23;
+      max_angular_speed = 0.15;
+
+      break;
+
+    default:
+      RCLCPP_ERROR(this->get_logger(), "Invalid Scene Number: %d",
+                   scene_number_);
+    }
+
+    RCLCPP_INFO(this->get_logger(), "Waypoint file loaded: %s",
+                waypoint_file_name.c_str());
+
+    std::string yaml_file_path =
+        package_share_directory + "/waypoints/" + waypoint_file_name;
+
+    // Read points from the YAML file
+    try {
+      YAML::Node config = YAML::LoadFile(yaml_file_path);
+
+      if (config["waypoints"]) {
+        // Do whatever needed to generate an array of waypoint to use after
+        for (const auto &node : config["waypoints"]) {
+          if (!node.IsMap()) {
+            RCLCPP_WARN(this->get_logger(),
+                        "Invalid waypoint format, skipping...");
+            continue;
+          }
+
+          double dx = node["dx"].as<double>();
+          double dy = node["dy"].as<double>();
+          double dphi = node["dphi"].as<double>();
+          bool holonomic = node["holonomic"].as<bool>();
+
+          waypoints_traj.emplace_back(dx, dy, dphi, holonomic);
+        }
+      }
+    } catch (const YAML::Exception &e) {
+      RCLCPP_ERROR(this->get_logger(), "Failed to load YAML file: %s",
+                   e.what());
+    }
   }
 
   // Move the robot according to the desired trajectory
@@ -229,8 +298,8 @@ private:
     // Compute the distance left to the target
     double error_x = target.dx - traveled_dx;
     double error_y = target.dy - traveled_dy;
-    //RCLCPP_INFO(this->get_logger(), "error_x is : %f", error_x);
-    //RCLCPP_INFO(this->get_logger(), "error_y is : %f", error_y);
+    RCLCPP_INFO(this->get_logger(), "error_x is : %f", error_x);
+    RCLCPP_INFO(this->get_logger(), "error_y is : %f", error_y);
 
     // Important: when dx or dy = 0 during lateral movements,
     // the corresponding error still accumulates noise, resulting in
@@ -242,10 +311,8 @@ private:
 
     double error_distance = std::hypot(error_x, error_y);
 
-    //RCLCPP_INFO(this->get_logger(), "error_distance is : %f", error_distance);
-    // RCLCPP_INFO(this->get_logger(), "error_y is : %f", error_y);
-    // RCLCPP_INFO(this->get_logger(), "error_distance is : %f",
-    // error_distance);
+    RCLCPP_INFO(this->get_logger(), "error_distance is : %f", error_distance);
+    //  RCLCPP_INFO(this->get_logger(), "error_y is : %f", error_y);
 
     // If the robot reached the target waypoint
     if (error_distance < 0.01) {
@@ -295,17 +362,21 @@ private:
 
     // RCLCPP_INFO(this->get_logger(),
     //             "PID terms: P=%.2f I=%.2f D=%.2f => linear_vel=%.2f",
-    //             kp_distance * error_distance, ki_distance * integral_distance,
-    //             kd_distance * derivative_distance, linear_vel);
+    //             kp_distance * error_distance, ki_distance *
+    //             integral_distance, kd_distance * derivative_distance,
+    //             linear_vel);
 
     // Set the direction for holonomic movement (Right/Left)
-    double direction = -1.0;
-    if (target.dx < 0 || target.dy < 0) {
+    // Right and left directions are different between simulation and real
+    if (scene_number_ == 2) {
       direction = 1.0;
+      if (target.dx < 0 || target.dy < 0) {
+        direction = -1.0;
+      }
     }
 
-    // Depending on whether the robot is going to move along its x ar y axis, we
-    // set the correct linear velocity
+    // Depending on whether the robot is going to move along its x ar y axis,
+    // we set the correct linear velocity
     if (!target.holonomic) {
       twist_cmd.linear.x = linear_vel;
       twist_cmd.linear.y = 0.0;
@@ -313,7 +384,7 @@ private:
       twist_cmd.linear.x = 0.0;
       twist_cmd.linear.y = direction * linear_vel;
     }
-    twist_cmd.angular.z = 0.0;
+    twist_cmd.angular.z = -0.015;
 
     twist_pub->publish(twist_cmd);
 
@@ -395,19 +466,29 @@ private:
   double prev_error_distance = 0.0;
   double prev_error_y = 0.0;
   double max_linear_speed =
-      0.8; // source: https://husarion.com/manuals/rosbot-xl/
+      0.8;                 // source: https://husarion.com/manuals/rosbot-xl/
+  double direction = -1.0; // for holonomic mode
 
   // Robot State Parameters
   RobotState robot_state;
 
   bool move_initialized = false;
+
+  // Distinguish between simulation and real scenarios
+  int scene_number_; // 1 : Sim; 2: Real
 };
 
 int main(int argc, char *argv[]) {
   rclcpp::init(argc, argv);
 
+  // Check if a scene number argument is provided
+  int scene_number = 1; // Default scene number to simulation
+  if (argc > 1) {
+    scene_number = std::atoi(argv[1]);
+  }
+
   std::shared_ptr<PIDMazeSolver> pid_maze_solver =
-      std::make_shared<PIDMazeSolver>();
+      std::make_shared<PIDMazeSolver>(scene_number);
 
   rclcpp::executors::MultiThreadedExecutor executor;
   executor.add_node(pid_maze_solver);

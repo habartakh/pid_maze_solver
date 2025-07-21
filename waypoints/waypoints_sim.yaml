@@ -1,0 +1,61 @@
+waypoints:
+  - dx: 0.353              #1
+    dy: 0.000
+    dphi: 0.000
+    holonomic: false
+  - dx: 0.136              # 2
+    dy: 0.000
+    dphi: -0.785
+    holonomic: false
+  - dx: 0.000              # 3
+    dy: -1.260
+    dphi: -0.785
+    holonomic: false
+  - dx: 0.543              # 4
+    dy: 0.000
+    dphi: +1.571
+    holonomic: false
+  - dx: 0.000              # 5 
+    dy: 0.581
+    dphi: +1.571
+    holonomic: false
+  - dx: 0.411              # 6
+    dy: 0.000
+    dphi: 0.000
+    holonomic: true
+  - dx: 0.000              # 7
+    dy: 0.517
+    dphi: 0.000
+    holonomic: false
+  - dx: 0.535              # 8
+    dy: 0.000
+    dphi: 0.000
+    holonomic: true
+  - dx: 0.000              # 9
+    dy: 0.878
+    dphi: 0.000
+    holonomic: false
+  - dx: -0.515              # 10 
+    dy: 0.000
+    dphi: +1.571
+    holonomic: false
+  - dx: 0.000              # 11
+    dy: -0.361
+    dphi: 0.000
+    holonomic: true
+  - dx: -0.450             # 12
+    dy: 0.000
+    dphi: 0.000
+    holonomic: false
+  - dx: -0.326              # 13
+    dy: 0.000
+    dphi: -0.785
+    holonomic: false
+  - dx: -0.494              # 14 
+    dy: 0.000
+    dphi: +0.785
+    holonomic: false
+  - dx: 0.000              # 15
+    dy: 0.000
+    dphi: +3.141
+    holonomic: false
