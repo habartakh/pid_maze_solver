@@ -99,7 +99,7 @@ private:
     waypoints_traj.push_back(WayPoint(-0.450, +0.000, +0.000, false)); // 12
 
     waypoints_traj.push_back(WayPoint(-0.326, +0.000, -0.785, false)); // 13
-    waypoints_traj.push_back(WayPoint(-0.454, +0.000, +0.785, false)); // 14
+    waypoints_traj.push_back(WayPoint(-0.494, +0.000, +0.785, false)); // 14
     waypoints_traj.push_back(WayPoint(+0.000, +0.000, +3.141, false)); // 15
   }
 
@@ -142,7 +142,6 @@ private:
   }
 
   void turn_controller() {
-    //  RCLCPP_INFO(this->get_logger(), "iNSIDE turn_controller ");
     // Compute the target yaw ONLY ONCE per Waypoint
     if (!set_target_yaw) {
       // Compute the angle left to the target
@@ -210,7 +209,6 @@ private:
   }
 
   void distance_controller() {
-    //  RCLCPP_INFO(this->get_logger(), "iNSIDE distance_controller ");
 
     // Save x, y, yaw at the start of the movement
     if (!move_initialized) {
@@ -231,8 +229,8 @@ private:
     // Compute the distance left to the target
     double error_x = target.dx - traveled_dx;
     double error_y = target.dy - traveled_dy;
-    RCLCPP_INFO(this->get_logger(), "error_x is : %f", error_x);
-    RCLCPP_INFO(this->get_logger(), "error_y is : %f", error_y);
+    //RCLCPP_INFO(this->get_logger(), "error_x is : %f", error_x);
+    //RCLCPP_INFO(this->get_logger(), "error_y is : %f", error_y);
 
     // Important: when dx or dy = 0 during lateral movements,
     // the corresponding error still accumulates noise, resulting in
@@ -244,7 +242,7 @@ private:
 
     double error_distance = std::hypot(error_x, error_y);
 
-    RCLCPP_INFO(this->get_logger(), "error_distance is : %f", error_distance);
+    //RCLCPP_INFO(this->get_logger(), "error_distance is : %f", error_distance);
     // RCLCPP_INFO(this->get_logger(), "error_y is : %f", error_y);
     // RCLCPP_INFO(this->get_logger(), "error_distance is : %f",
     // error_distance);
@@ -295,10 +293,10 @@ private:
     // RCLCPP_INFO(this->get_logger(), "linear_vel = %f ", linear_vel);
     // RCLCPP_INFO(this->get_logger(), "vy = %f ", vy);
 
-    RCLCPP_INFO(this->get_logger(),
-                "PID terms: P=%.2f I=%.2f D=%.2f => linear_vel=%.2f",
-                kp_distance * error_distance, ki_distance * integral_distance,
-                kd_distance * derivative_distance, linear_vel);
+    // RCLCPP_INFO(this->get_logger(),
+    //             "PID terms: P=%.2f I=%.2f D=%.2f => linear_vel=%.2f",
+    //             kp_distance * error_distance, ki_distance * integral_distance,
+    //             kd_distance * derivative_distance, linear_vel);
 
     // Set the direction for holonomic movement (Right/Left)
     double direction = -1.0;
