@@ -98,12 +98,6 @@ private:
     right_distance = msg->ranges[579];
     left_distance = msg->ranges[179];
     back_distance = msg->ranges[359];
-
-    // RCLCPP_INFO(this->get_logger(), "msg->ranges[0]: %f ", msg->ranges[0]);
-    // RCLCPP_INFO(this->get_logger(), "msg->ranges[179]: %f ",
-    // msg->ranges[179]); RCLCPP_INFO(this->get_logger(), "msg->ranges[359]: %f
-    // ", msg->ranges[359]); RCLCPP_INFO(this->get_logger(), "msg->ranges[579]:
-    // %f ", msg->ranges[579]);
   }
 
   // Correct the trajectory of the robot when moving if it detects any obstacle
@@ -115,13 +109,6 @@ private:
     obstacle_front =
         ((front_distance < max_range && front_distance > min_range) &&
          front_distance < min_distance_threshold);
-
-    // obstacle_right = (std::isfinite(right_distance) &&
-    //                   right_distance < min_distance_threshold);
-    // obstacle_left = (std::isfinite(left_distance) &&
-    //                  left_distance < min_distance_threshold);
-    // obstacle_back = (std::isfinite(back_distance) &&
-    //                  back_distance < min_distance_threshold);
   }
 
   void readWaypointsYAML() {
@@ -136,17 +123,12 @@ private:
     switch (scene_number_) {
     case 1: // Simulation
       waypoint_file_name = "waypoints_sim.yaml";
-      direction = -1.0;
-      if (target.dx < 0 || target.dy < 0) {
-        direction = 1.0;
-      }
       break;
 
     case 2: // CyberWorld
       waypoint_file_name = "waypoints_real.yaml";
-      max_linear_speed = 0.22;
+      max_linear_speed = 0.22; // Reduce speeds for real robot to avoid damage
       max_angular_speed = 0.2;
-
       break;
 
     default:
@@ -193,7 +175,7 @@ private:
     // Wait till receiving a valid odometry message
     if (!odom_received) {
       RCLCPP_WARN(this->get_logger(),
-                  "No odometry message is received yet, waiting... ");
+                  "No odometry message received yet, waiting... ");
 
       return;
     }
@@ -206,6 +188,7 @@ private:
       return;
     }
 
+    // Always compute the distance left to the front wall
     compute_obstacle_distances();
 
     target = waypoints_traj[traj_index];
@@ -228,7 +211,7 @@ private:
     }
   }
 
-  // Apply a controller to turn robot by targeted_dphi radians
+  // Apply a controller to turn robot by "targeted_dphi" radians
   void turn_controller(double targeted_dphi) {
     // Compute the target yaw ONLY ONCE per Waypoint
     if (!set_target_yaw) {
@@ -239,14 +222,12 @@ private:
     }
 
     // Compute the angle left to the target
-    double error_yaw = target_yaw - current_yaw;
+    double error_yaw = normalize_angle(target_yaw - current_yaw);
 
     // RCLCPP_INFO(this->get_logger(), "error_yaw : %f", error_yaw);
 
     // If the robot reached the target waypoint
     if (std::abs(error_yaw) < 0.02) {
-      RCLCPP_WARN_ONCE(this->get_logger(),
-                       "Turned towards waypoint number : %lu", traj_index + 1);
 
       set_target_yaw = false; // Reset target yaw for next waypoint
       yaw_pre_move = current_yaw;
@@ -254,15 +235,14 @@ private:
       if (robot_state == CORRECT_TILT) { // If the tilt was corrected
         traj_index++;                    // Go to the next waypoint
         robot_state = TURN;
-        RCLCPP_INFO(
-            this->get_logger(),
-            "Inside turn_controller, robot state : CORRECT_TILT -> TURN ");
+        RCLCPP_INFO(this->get_logger(), "Successfully corrected robot tilt");
+
       }
 
       else {
         robot_state = MOVE; // After turn sequence ends, start move sequence
-        RCLCPP_INFO(this->get_logger(),
-                    "Inside turn_controller, robot state : TURN -> MOVE ");
+        RCLCPP_INFO(this->get_logger(), "Turned towards waypoint number : %lu",
+                    traj_index + 1);
       }
 
       stop_robot(); // Stop the robot for 20 * 0.1 = 2 seconds
@@ -291,8 +271,6 @@ private:
     // Make sure the robot stays within max speed bounds
     angular_speed =
         std::clamp(angular_speed, -max_angular_speed, +max_angular_speed);
-
-    // RCLCPP_INFO(this->get_logger(), "angular_speed = %f ", angular_speed);
 
     twist_cmd.linear.x = 0.0;
     twist_cmd.linear.y = 0.0;
@@ -343,14 +321,9 @@ private:
     // error_distance);
     //  RCLCPP_INFO(this->get_logger(), "error_y is : %f", error_y);
 
-    if (error_distance < 0.1 && obstacle_front) {
-      RCLCPP_INFO(this->get_logger(), "Obstacle ahead at distance : %f",
-                  front_distance);
-    }
-
     // If the robot reached the target waypoint
     if (error_distance < 0.01 || (error_distance < 0.1 && obstacle_front)) {
-      RCLCPP_WARN(this->get_logger(), "Reached waypoint number : %lu",
+      RCLCPP_INFO(this->get_logger(), "Reached waypoint number : %lu",
                   traj_index + 1);
 
       yaw_post_move = current_yaw;
@@ -379,8 +352,6 @@ private:
     // Integral terms
     integral_distance += error_distance * dt;
 
-    // integral_distance = std::clamp(integral_distance, -0.5, 0.5);
-
     // Derivative terms
     double derivative_distance = (error_distance - prev_error_distance) / dt;
 
@@ -391,12 +362,6 @@ private:
 
     // Make sure the robot stays within max speed bounds
     linear_vel = std::clamp(linear_vel, -max_linear_speed, +max_linear_speed);
-
-    // RCLCPP_INFO(this->get_logger(),
-    //             "PID terms: P=%.2f I=%.2f D=%.2f => linear_vel=%.2f",
-    //             kp_distance * error_distance, ki_distance *
-    //             integral_distance, kd_distance * derivative_distance,
-    //             linear_vel);
 
     // Set the direction for holonomic movement (Right/Left)
     // Right and left directions are different between simulation and real
@@ -434,14 +399,13 @@ private:
   }
 
   void correct_tilt() {
-    double tilt = yaw_pre_move - yaw_post_move;
-    RCLCPP_INFO_ONCE(this->get_logger(), "Correcting Tilt : %f ", tilt);
+    double tilt = normalize_angle(yaw_pre_move - yaw_post_move);
+    RCLCPP_DEBUG(this->get_logger(), "Correcting Tilt : %f ", tilt);
     turn_controller(tilt);
   }
 
   // normalize angles to range [-pi, pi]
   double normalize_angle(double angle) {
-    // RCLCPP_INFO(this->get_logger(), "Inside normalize_angle function ");
     while (angle > M_PI) {
       angle -= 2 * M_PI;
     }
@@ -498,7 +462,7 @@ private:
   // PID Distance Controller Parameters
   double kp_distance = 0.35;      // Proportional Gain
   double ki_distance = 0.005;     // Integral Gain
-  double kd_distance = 0.15;       // Derivative Gain
+  double kd_distance = 0.15;      // Derivative Gain
   double integral_distance = 0.0; // Integral terms of the PID controller
   double integral_y = 0.0;
   rclcpp::Time prev_time_distance; // instant t-1

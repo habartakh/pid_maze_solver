@@ -3,12 +3,12 @@ waypoints:
     dy: 0.000
     dphi: 0.000
     holonomic: false
-  - dx: +0.939              # 2
+  - dx: +0.919              # 2
     dy: 0.000
     dphi: 0.000
     holonomic: false
   - dx: 0.000              # 3
-    dy: -0.501
+    dy: -0.521
     dphi: -1.571
     holonomic: false
   - dx: -0.382              # 4
@@ -40,7 +40,7 @@ waypoints:
     dphi: -1.571
     holonomic: false
   - dx: 0.000              # 11
-    dy: 0.834
+    dy: 0.814
     dphi: -1.571
     holonomic: false
   - dx: -0.554              # 12
