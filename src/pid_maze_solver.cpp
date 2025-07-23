@@ -6,6 +6,8 @@
 #include "nav_msgs/msg/odometry.hpp"
 #include "rclcpp/logging.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "sensor_msgs/msg/detail/laser_scan__struct.hpp"
+#include "sensor_msgs/msg/laser_scan.hpp"
 
 #include "tf2/LinearMath/Matrix3x3.h"
 #include "tf2/LinearMath/Quaternion.h"
@@ -30,8 +32,9 @@ struct WayPoint {
 // Going through the maze consists of a sequence of turn / move etc..
 // The adequate PID Controller is used for each state
 enum RobotState {
-  MOVE, // Move along X, Y axes to reach the waypoint
-  TURN, // Turn towards the next waypoint
+  MOVE,         // Move along X, Y axes to reach the waypoint
+  TURN,         // Turn towards the next waypoint
+  CORRECT_TILT, // Correct the tilt generated after movement
   STOP
 };
 
@@ -57,7 +60,9 @@ public:
         100ms, std::bind(&PIDMazeSolver::control_loop, this),
         timer_callback_group_);
 
-    // waypoints_traj_init();
+    scan_sub = this->create_subscription<sensor_msgs::msg::LaserScan>(
+        "/scan", 10, std::bind(&PIDMazeSolver::scan_callback, this, _1));
+
     readWaypointsYAML();
 
     robot_state = TURN;
@@ -85,28 +90,38 @@ private:
     odom_received = true;
   }
 
-  // Add all the waypoints the robot is going throughout the maze
-  void waypoints_traj_init() {
+  void scan_callback(const sensor_msgs::msg::LaserScan::SharedPtr msg) {
 
-    waypoints_traj.push_back(WayPoint(+0.353, +0.000, +0.000, false)); // 1
-    waypoints_traj.push_back(WayPoint(+0.136, +0.000, -0.785, false)); // 2
-    waypoints_traj.push_back(WayPoint(+0.000, -1.260, -0.785, false)); // 3
-    waypoints_traj.push_back(WayPoint(+0.543, +0.000, +1.571, false)); // 4
-    waypoints_traj.push_back(WayPoint(+0.000, +0.581, +1.571, false)); // 5
+    max_range = msg->range_max;
+    min_range = msg->range_min;
+    front_distance = msg->ranges[0];
+    right_distance = msg->ranges[579];
+    left_distance = msg->ranges[179];
+    back_distance = msg->ranges[359];
 
-    waypoints_traj.push_back(WayPoint(+0.411, +0.000, +0.000, true));  // 6
-    waypoints_traj.push_back(WayPoint(+0.000, +0.517, +0.000, false)); // 7
-    waypoints_traj.push_back(WayPoint(+0.535, +0.000, +0.000, true));  // 8
-    waypoints_traj.push_back(WayPoint(+0.000, +0.878, +0.000, false)); // 9
+    // RCLCPP_INFO(this->get_logger(), "msg->ranges[0]: %f ", msg->ranges[0]);
+    // RCLCPP_INFO(this->get_logger(), "msg->ranges[179]: %f ",
+    // msg->ranges[179]); RCLCPP_INFO(this->get_logger(), "msg->ranges[359]: %f
+    // ", msg->ranges[359]); RCLCPP_INFO(this->get_logger(), "msg->ranges[579]:
+    // %f ", msg->ranges[579]);
+  }
 
-    waypoints_traj.push_back(WayPoint(-0.515, +0.000, +1.571, false)); // 10
+  // Correct the trajectory of the robot when moving if it detects any obstacle
+  void compute_obstacle_distances() {
 
-    waypoints_traj.push_back(WayPoint(+0.000, -0.361, +0.000, true));  // 11
-    waypoints_traj.push_back(WayPoint(-0.450, +0.000, +0.000, false)); // 12
+    min_distance_threshold = 0.22;
 
-    waypoints_traj.push_back(WayPoint(-0.326, +0.000, -0.785, false)); // 13
-    waypoints_traj.push_back(WayPoint(-0.494, +0.000, +0.785, false)); // 14
-    waypoints_traj.push_back(WayPoint(+0.000, +0.000, +3.141, false)); // 15
+    // Make sure that the distance is valid (!= inf)
+    obstacle_front =
+        ((front_distance < max_range && front_distance > min_range) &&
+         front_distance < min_distance_threshold);
+
+    // obstacle_right = (std::isfinite(right_distance) &&
+    //                   right_distance < min_distance_threshold);
+    // obstacle_left = (std::isfinite(left_distance) &&
+    //                  left_distance < min_distance_threshold);
+    // obstacle_back = (std::isfinite(back_distance) &&
+    //                  back_distance < min_distance_threshold);
   }
 
   void readWaypointsYAML() {
@@ -129,8 +144,8 @@ private:
 
     case 2: // CyberWorld
       waypoint_file_name = "waypoints_real.yaml";
-      max_linear_speed = 0.23;
-      max_angular_speed = 0.15;
+      max_linear_speed = 0.22;
+      max_angular_speed = 0.2;
 
       break;
 
@@ -191,30 +206,34 @@ private:
       return;
     }
 
+    compute_obstacle_distances();
+
     target = waypoints_traj[traj_index];
 
     if (robot_state == TURN) {
-      //  RCLCPP_INFO(this->get_logger(), "ROBOT STATE == TURN ");
-      turn_controller();
+      turn_controller(target.dphi);
     }
 
     if (robot_state == MOVE) {
-      // RCLCPP_INFO(this->get_logger(), "ROBOT STATE == MOVE ");
       distance_controller();
     }
 
+    if (robot_state == CORRECT_TILT) {
+      correct_tilt();
+    }
+
     if (robot_state == STOP) {
-      // RCLCPP_INFO(this->get_logger(), "ROBOT STATE == STOP ");
       stop_robot();
       return;
     }
   }
 
-  void turn_controller() {
+  // Apply a controller to turn robot by targeted_dphi radians
+  void turn_controller(double targeted_dphi) {
     // Compute the target yaw ONLY ONCE per Waypoint
     if (!set_target_yaw) {
       // Compute the angle left to the target
-      target_yaw = normalize_angle(current_yaw + target.dphi);
+      target_yaw = normalize_angle(current_yaw + targeted_dphi);
       set_target_yaw = true;
       integral_yaw = 0.0;
     }
@@ -225,18 +244,25 @@ private:
     // RCLCPP_INFO(this->get_logger(), "error_yaw : %f", error_yaw);
 
     // If the robot reached the target waypoint
-    if (std::abs(error_yaw) < 0.01) {
-      RCLCPP_WARN(this->get_logger(), "Turned towards waypoint number : %lu",
-                  traj_index + 1);
+    if (std::abs(error_yaw) < 0.02) {
+      RCLCPP_WARN_ONCE(this->get_logger(),
+                       "Turned towards waypoint number : %lu", traj_index + 1);
 
       set_target_yaw = false; // Reset target yaw for next waypoint
+      yaw_pre_move = current_yaw;
 
-      if (target.dx != 0.000 || target.dy != 0.000) {
-        robot_state = MOVE; // After turn sequence ends, start move sequence
+      if (robot_state == CORRECT_TILT) { // If the tilt was corrected
+        traj_index++;                    // Go to the next waypoint
+        robot_state = TURN;
+        RCLCPP_INFO(
+            this->get_logger(),
+            "Inside turn_controller, robot state : CORRECT_TILT -> TURN ");
       }
 
       else {
-        traj_index++; // Go to the next waypoint
+        robot_state = MOVE; // After turn sequence ends, start move sequence
+        RCLCPP_INFO(this->get_logger(),
+                    "Inside turn_controller, robot state : TURN -> MOVE ");
       }
 
       stop_robot(); // Stop the robot for 20 * 0.1 = 2 seconds
@@ -289,6 +315,8 @@ private:
       // Reset PID integrals and previous errors
       integral_distance = 0.0;
       prev_error_distance = 0.0;
+
+      obstacle_front = false;
     }
 
     // Compute the actual distance travelled along x/y axes
@@ -298,8 +326,8 @@ private:
     // Compute the distance left to the target
     double error_x = target.dx - traveled_dx;
     double error_y = target.dy - traveled_dy;
-    RCLCPP_INFO(this->get_logger(), "error_x is : %f", error_x);
-    RCLCPP_INFO(this->get_logger(), "error_y is : %f", error_y);
+    // RCLCPP_INFO(this->get_logger(), "error_x is : %f", error_x);
+    // RCLCPP_INFO(this->get_logger(), "error_y is : %f", error_y);
 
     // Important: when dx or dy = 0 during lateral movements,
     // the corresponding error still accumulates noise, resulting in
@@ -311,21 +339,28 @@ private:
 
     double error_distance = std::hypot(error_x, error_y);
 
-    RCLCPP_INFO(this->get_logger(), "error_distance is : %f", error_distance);
+    // RCLCPP_INFO(this->get_logger(), "error_distance is : %f",
+    // error_distance);
     //  RCLCPP_INFO(this->get_logger(), "error_y is : %f", error_y);
 
+    if (error_distance < 0.1 && obstacle_front) {
+      RCLCPP_INFO(this->get_logger(), "Obstacle ahead at distance : %f",
+                  front_distance);
+    }
+
     // If the robot reached the target waypoint
-    if (error_distance < 0.01) {
+    if (error_distance < 0.01 || (error_distance < 0.1 && obstacle_front)) {
       RCLCPP_WARN(this->get_logger(), "Reached waypoint number : %lu",
                   traj_index + 1);
+
+      yaw_post_move = current_yaw;
 
       move_initialized = false; // Reset for next move phase
       traveled_dx = 0.0;
       traveled_dy = 0.0;
 
-      traj_index++; // Go to the next waypoint
-
-      robot_state = TURN;
+      robot_state =
+          CORRECT_TILT; // Correct the tilt before going to the next waypoint
 
       stop_robot(); // Stop the robot for 20 * 0.1 = 2 seconds
       rclcpp::sleep_for(std::chrono::seconds(2));
@@ -356,9 +391,6 @@ private:
 
     // Make sure the robot stays within max speed bounds
     linear_vel = std::clamp(linear_vel, -max_linear_speed, +max_linear_speed);
-
-    // RCLCPP_INFO(this->get_logger(), "linear_vel = %f ", linear_vel);
-    // RCLCPP_INFO(this->get_logger(), "vy = %f ", vy);
 
     // RCLCPP_INFO(this->get_logger(),
     //             "PID terms: P=%.2f I=%.2f D=%.2f => linear_vel=%.2f",
@@ -401,6 +433,12 @@ private:
     twist_pub->publish(stop_msg);
   }
 
+  void correct_tilt() {
+    double tilt = yaw_pre_move - yaw_post_move;
+    RCLCPP_INFO_ONCE(this->get_logger(), "Correcting Tilt : %f ", tilt);
+    turn_controller(tilt);
+  }
+
   // normalize angles to range [-pi, pi]
   double normalize_angle(double angle) {
     // RCLCPP_INFO(this->get_logger(), "Inside normalize_angle function ");
@@ -416,6 +454,7 @@ private:
   // Variable declarations
   rclcpp::CallbackGroup::SharedPtr odom_callback_group_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub;
+  rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub;
 
   rclcpp::CallbackGroup::SharedPtr timer_callback_group_;
   rclcpp::TimerBase::SharedPtr twist_timer;
@@ -457,9 +496,9 @@ private:
       3.14; // source: https://husarion.com/manuals/rosbot-xl/
 
   // PID Distance Controller Parameters
-  double kp_distance = 1.0;       // Proportional Gain
+  double kp_distance = 0.35;      // Proportional Gain
   double ki_distance = 0.005;     // Integral Gain
-  double kd_distance = 0.00;      // Derivative Gain
+  double kd_distance = 0.15;       // Derivative Gain
   double integral_distance = 0.0; // Integral terms of the PID controller
   double integral_y = 0.0;
   rclcpp::Time prev_time_distance; // instant t-1
@@ -476,6 +515,23 @@ private:
 
   // Distinguish between simulation and real scenarios
   int scene_number_; // 1 : Sim; 2: Real
+
+  // Parameters for laserScan
+  double max_range = 0.0;
+  double min_range = 0.0;
+  double left_distance = 0.0;
+  double right_distance = 0.0;
+  double front_distance = 0.0;
+  double back_distance = 0.0;
+  double min_distance_threshold = 0.2;
+  bool obstacle_front = false;
+  bool obstacle_left = false;
+  bool obstacle_right = false;
+  bool obstacle_back = false;
+
+  // Parameters for correcting tilt
+  double yaw_pre_move = 0.0;
+  double yaw_post_move = 0.0;
 };
 
 int main(int argc, char *argv[]) {
